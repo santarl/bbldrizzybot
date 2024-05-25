@@ -1,7 +1,51 @@
-import sqlite3
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import sqlite3, time, os, random
+from telegram import Update
+from telegram.ext import Filters, Updater, CommandHandler, MessageHandler, CallbackContext
 from config import TOKEN
 from datetime import datetime, timedelta
+
+# Function to handle /bbldrizzybackup command
+def bbldrizzybackup(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    if chat_id != ADMIN_GROUP:
+        update.message.reply_text("This command is only available in the specified chat.")
+        return
+    
+    backup_filename = f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    context.bot.send_document(chat_id, document=open('database.db', 'rb'), filename=backup_filename)
+
+# Function to handle /bbldrizzyrestore command
+def bbldrizzyrestore(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    if chat_id != ADMIN_GROUP:
+        update.message.reply_text("This command is only available in the specified chat.")
+        return
+
+    if not update.message.reply_to_message or not update.message.reply_to_message.document:
+        update.message.reply_text("Please reply to a message containing the database backup file.")
+        return
+
+    file = update.message.reply_to_message.document
+    if not file.file_name.endswith('.db'):
+        update.message.reply_text("Invalid file format. Please send the database backup file.")
+        return
+
+    file_id = file.file_id
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            new_file = context.bot.get_file(file_id)
+            new_file.download(custom_path='database_restore.db')
+            break  # Break out of the loop if download succeeds
+        except Exception as e:
+            if attempt == max_retries:
+                update.message.reply_text("Failed to download the file. Please try again later.")
+                return
+            else:
+                time.sleep(1)  # Wait for 1 second before retrying
+    
+    os.replace('database_restore.db', 'database.db')
+    update.message.reply_text("Database restored successfully.")
 
 # Function to get a new database connection and cursor
 def get_db_connection():
@@ -22,7 +66,7 @@ def create_users_table():
                         drizzles INTEGER DEFAULT 50,
                         last_sticker_transaction TIMESTAMP)''')
     cursor.execute('''INSERT OR IGNORE INTO users (username, drizzles) 
-                      VALUES (?, ?)''', ('real_noonlord', 200))
+                      VALUES (?, ?)''', ('real_noonlord', 400))
     cursor.execute('''INSERT OR IGNORE INTO users (username, drizzles) 
                     VALUES (?, ?)''', ('santairl', 50))
     close_db_connection(conn)
@@ -46,9 +90,9 @@ def get_drizzles(username):
     if row:
         drizzles_count = row[0]
     else:
-        # If the user doesn't exist, initialize them with 50 drizzles
-        cursor.execute('''INSERT INTO users (username, drizzles) VALUES (?, ?)''', (username, 50))
-        drizzles_count = 50
+        # If the user doesn't exist, initialize them with random drizzles
+        drizzles_count = random.randrange(50, 151, 5)
+        cursor.execute('''INSERT INTO users (username, drizzles) VALUES (?, ?)''', (username, drizzles_count))
 
     conn.commit()
     conn.close()
@@ -82,8 +126,8 @@ def drizzles(update, context):
 
 # Handler for /drizzleboard command
 def drizzleboard(update, context):
+    get_drizzles(update.message.from_user.username)
     conn, cursor = get_db_connection()
-    
     # Get all users ordered by drizzles (descending order)
     cursor.execute('''SELECT username, drizzles FROM users ORDER BY drizzles DESC''')
     all_users = cursor.fetchall()
@@ -125,17 +169,32 @@ def sanitize_username(username):
 # Handler for stickers
 def handle_stickers(update, context):
     sticker = update.message.sticker
-    sender = update.message.from_user
-
-    if not update.message.reply_to_message:
-        update.message.reply_text("`Please reply to a message when sending a sticker.`", parse_mode='MarkdownV2')
+    
+    if sticker.set_name != "bbldrizzybot":
         return
 
+    if sticker.emoji == "🎒":
+        drizzles(update, context)
+        return
+
+    if sticker.emoji == "🥇":
+        drizzleboard(update, context)
+        return
+
+    if not update.message.reply_to_message:
+        update.message.reply_text("`Please reply to a message to share Drizzles.`", parse_mode='MarkdownV2')
+        return
+
+    sender = update.message.from_user
     receiver = update.message.reply_to_message.from_user
 
     if not sender.username or not receiver.username:
         update.message.reply_text("`Both users need to set a username in their Telegram settings to use this bot.`", parse_mode='MarkdownV2')
         return
+
+    get_drizzles(sender.username)
+    get_drizzles(receiver.username)
+
     
     if sender.id == receiver.id:
         update.message.reply_text("`You don't need me for this, just pretend you're transferring Drizzles to yourself 🤓`", parse_mode='MarkdownV2')
@@ -159,14 +218,15 @@ def handle_stickers(update, context):
             update.message.reply_text("`Easy Brother, one transaction 🎤🚸 every 30 seconds`", parse_mode='MarkdownV2')
             return
 
+    transaction_amount = random.randrange(1, 5)
     if sticker.emoji == "🚸":
-        drizzles_count_receiver += 5
-        drizzles_count_sender -= 5
-        update.message.reply_text(f"`{sender_username} has gifted 5 Drizzles to {receiver_username} from their account!`", parse_mode='MarkdownV2')
+        drizzles_count_receiver += transaction_amount
+        drizzles_count_sender -= transaction_amount
+        update.message.reply_text(f"`{sender_username} has gifted {transaction_amount} Drizzles to {receiver_username} from their account!`", parse_mode='MarkdownV2')
     elif sticker.emoji == "🎤":
-        drizzles_count_receiver -= 5
-        drizzles_count_sender += 5
-        update.message.reply_text(f"`{sender_username} has borrowed 5 Drizzles from {receiver_username}'s account!`", parse_mode='MarkdownV2')
+        drizzles_count_receiver -= transaction_amount
+        drizzles_count_sender += transaction_amount
+        update.message.reply_text(f"`{sender_username} has borrowed {transaction_amount} Drizzles from {receiver_username}'s account!`", parse_mode='MarkdownV2')
 
     update_drizzles(receiver_username, drizzles_count_receiver)
     update_drizzles(sender_username, drizzles_count_sender)
@@ -185,6 +245,8 @@ def main():
     dp.add_handler(CommandHandler("drizzles", drizzles))
     dp.add_handler(CommandHandler("drizzleboard", drizzleboard))
     dp.add_handler(MessageHandler(Filters.sticker, handle_stickers))
+    dp.add_handler(CommandHandler("bbldrizzybackup", bbldrizzybackup))
+    dp.add_handler(CommandHandler("bbldrizzyrestore", bbldrizzyrestore))
 
     updater.start_polling()
     updater.idle()
