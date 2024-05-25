@@ -1,7 +1,7 @@
 import sqlite3
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from telegram import Sticker
 from config import TOKEN
+from datetime import datetime, timedelta
 
 # Function to get a new database connection and cursor
 def get_db_connection():
@@ -18,116 +18,174 @@ def close_db_connection(conn):
 def create_users_table():
     conn, cursor = get_db_connection()
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                        user_id INTEGER PRIMARY KEY,
-                        username TEXT,
-                        drizzles INTEGER DEFAULT 100)''')
-    # Set drizzles to 960 for @real_noonlord
-    cursor.execute('''INSERT OR IGNORE INTO users (user_id, username, drizzles) 
-                      VALUES (?, ?, ?)''', (1, 'real_noonlord', 960))
+                        username TEXT PRIMARY KEY,
+                        drizzles INTEGER DEFAULT 50,
+                        last_sticker_transaction TIMESTAMP)''')
+    cursor.execute('''INSERT OR IGNORE INTO users (username, drizzles) 
+                      VALUES (?, ?)''', ('real_noonlord', 200))
+    cursor.execute('''INSERT OR IGNORE INTO users (username, drizzles) 
+                    VALUES (?, ?)''', ('santairl', 50))
     close_db_connection(conn)
 
-
 # Function to update drizzles for a user
-def update_drizzles(user_id, drizzles):
+def update_drizzles(username, drizzles):
     conn, cursor = get_db_connection()
-    cursor.execute('''INSERT OR REPLACE INTO users (user_id, drizzles) 
-                      VALUES (?, ?)''', (user_id, drizzles))
+    cursor.execute('''INSERT OR REPLACE INTO users (username, drizzles) 
+                      VALUES (?, ?)''', (username, drizzles))
     close_db_connection(conn)
 
 # Function to get drizzles for a user
-def get_drizzles(user_id):
+def get_drizzles(username):
+    conn = sqlite3.connect('database.db', check_same_thread=False)
+    cursor = conn.cursor()
+
+    # Check if the user exists in the database
+    cursor.execute('''SELECT drizzles FROM users WHERE username = ?''', (username,))
+    row = cursor.fetchone()
+
+    if row:
+        drizzles_count = row[0]
+    else:
+        # If the user doesn't exist, initialize them with 50 drizzles
+        cursor.execute('''INSERT INTO users (username, drizzles) VALUES (?, ?)''', (username, 50))
+        drizzles_count = 50
+
+    conn.commit()
+    conn.close()
+
+    return drizzles_count
+
+
+# Function to get the last sticker transaction time for a user
+def get_last_sticker_transaction(username):
     conn, cursor = get_db_connection()
-    cursor.execute('''SELECT drizzles FROM users WHERE user_id = ?''', (user_id,))
+    cursor.execute('''SELECT last_sticker_transaction FROM users WHERE username = ?''', (username,))
     row = cursor.fetchone()
     close_db_connection(conn)
-    if row:
-        return row[0]
-    else:
-        return 0
+    return row[0] if row else None
+
+# Function to update the last sticker transaction time for a user
+def update_last_sticker_transaction(username, timestamp):
+    conn, cursor = get_db_connection()
+    cursor.execute('''UPDATE users SET last_sticker_transaction = ? WHERE username = ?''', (timestamp, username))
+    close_db_connection(conn)
 
 # Handler for /start command
 def start(update, context):
-    update.message.reply_text("Welcome to Drizzles Bot! Use /drizzles to check your drizzles.")
+    update.message.reply_text("`Welcome to Drizzles Bot! Use /drizzles to check your drizzles.`", parse_mode='MarkdownV2')
 
 # Handler for /drizzles command
 def drizzles(update, context):
-    user_id = update.message.from_user.id
-    drizzles_count = get_drizzles(user_id)
-    update.message.reply_text(f"You have {drizzles_count} drizzles.")
+    username = update.message.from_user.username
+    drizzles_count = get_drizzles(username)
+    update.message.reply_text(f"`You have {drizzles_count} drizzles.`", parse_mode='MarkdownV2')
 
-# Handler for /drizzyboard command
-def drizzyboard(update, context):
+# Handler for /drizzleboard command
+def drizzleboard(update, context):
     conn, cursor = get_db_connection()
-    cursor.execute('''SELECT username, drizzles FROM users ORDER BY drizzles DESC LIMIT 10''')
-    rows = cursor.fetchall()
+    
+    # Get all users ordered by drizzles (descending order)
+    cursor.execute('''SELECT username, drizzles FROM users ORDER BY drizzles DESC''')
+    all_users = cursor.fetchall()
+    
     close_db_connection(conn)
-    drizzyboard_text = "Drizzyboard:\n"
-    for index, row in enumerate(rows, start=1):
-        drizzyboard_text += f"{index}. {row[0]} - {row[1]} drizzles\n"
-    update.message.reply_text(drizzyboard_text)
 
-# Function to update or insert user information
-def update_user_info(user_id, username, drizzles):
-    conn, cursor = get_db_connection()
-    # Sanitize username
-    username = username.replace("@", "")
-    cursor.execute('''INSERT OR REPLACE INTO users (user_id, username, drizzles) 
-                      VALUES (?, ?, ?)''', (user_id, username, drizzles))
-    close_db_connection(conn)
+    # Determine the number of users for each list
+    num_users = len(all_users)
+    num_users_per_list = num_users // 2 if num_users >= 10 else num_users // 2 + num_users % 2
+
+    top_5 = all_users[:num_users_per_list]
+    bottom_5 = all_users[num_users_per_list:]
+
+    # Display the drizzleboard
+    top_5_content = ''.join([f'{index}. {username} - {drizzles} drizzles\n' for index, (username, drizzles) in enumerate(top_5, start=1)])
+    bottom_5_content = ''.join([f'{index}. {username} - {drizzles} drizzles\n' for index, (username, drizzles) in enumerate(bottom_5, start=1)])
+
+    # Replace '_' with '\_', '.' with '\.', and '-' with '\-'
+    top_5_content = top_5_content.replace('_', '\\_').replace('.', '\\.').replace('-', '\\-')
+    bottom_5_content = bottom_5_content.replace('_', '\\_').replace('.', '\\.').replace('-', '\\-')
+
+    drizzleboard_text = (
+        '```' + '\n'
+        'Drizzleboard\n\n'
+        '🚸Most likely to be Drake🚸\n'
+        f"{top_5_content}\n"
+        '🎤Most likely to be Kendrick🎤\n'
+        f"{bottom_5_content}\n"
+        '```' + '\n'
+    )
+
+    update.message.reply_text(drizzleboard_text, parse_mode='MarkdownV2')
+
+
+# Function to sanitize username
+def sanitize_username(username):
+    return username.replace("@", "")
 
 # Handler for stickers
 def handle_stickers(update, context):
     sticker = update.message.sticker
     sender = update.message.from_user
-    sticker_emoji = sticker.emoji
+
+    if not update.message.reply_to_message:
+        update.message.reply_text("`Please reply to a message when sending a sticker.`", parse_mode='MarkdownV2')
+        return
+
     receiver = update.message.reply_to_message.from_user
 
-    if sender.username or receiver.username is None:
-        update.message.reply_text("Please set a username in your Telegram settings to use this bot.")
+    if not sender.username or not receiver.username:
+        update.message.reply_text("`Both users need to set a username in their Telegram settings to use this bot.`", parse_mode='MarkdownV2')
         return
     
-    drizzles_count_replied = get_drizzles(receiver.id)
-    drizzles_count_sender = get_drizzles(sender.id)
+    if sender.id == receiver.id:
+        update.message.reply_text("`You don't need me for this, just pretend you're transferring Drizzles to yourself 🤓`", parse_mode='MarkdownV2')
+        return
 
-    if sticker_emoji == "🚸":
-        # Increment drizzles for the replied user
-        drizzles_count_replied += 5
+    if receiver.is_bot:
+        update.message.reply_text("`I can be your friend but you need to find a real person to play with 🥺`", parse_mode='MarkdownV2')
+        return
+
+    sender_username = sanitize_username(sender.username)
+    receiver_username = sanitize_username(receiver.username)
+
+    drizzles_count_sender = get_drizzles(sender_username)
+    drizzles_count_receiver = get_drizzles(receiver_username)
+
+    # Check if enough time has passed since the last sticker transaction
+    last_transaction_time = get_last_sticker_transaction(sender_username)
+    if last_transaction_time:
+        time_since_last_transaction = datetime.now() - datetime.strptime(last_transaction_time, "%Y-%m-%d %H:%M:%S")
+        if time_since_last_transaction < timedelta(seconds=30):
+            update.message.reply_text("`Easy Brother, one transaction 🎤🚸 every 30 seconds`", parse_mode='MarkdownV2')
+            return
+
+    if sticker.emoji == "🚸":
+        drizzles_count_receiver += 5
         drizzles_count_sender -= 5
-        update.message.reply_text(f"{sender.username} has gifted 5 Drizzles to {receiver.username} from their account!")
-
-    elif sticker_emoji == "🎤":
-        # Decrement drizzles for the user who sent the sticker
-        drizzles_count_replied -= 5
+        update.message.reply_text(f"`{sender_username} has gifted 5 Drizzles to {receiver_username} from their account!`", parse_mode='MarkdownV2')
+    elif sticker.emoji == "🎤":
+        drizzles_count_receiver -= 5
         drizzles_count_sender += 5
-        update.message.reply_text(f"{sender.username} has borrowed 5 Drizzles from {receiver.username}'s account!")
+        update.message.reply_text(f"`{sender_username} has borrowed 5 Drizzles from {receiver_username}'s account!`", parse_mode='MarkdownV2')
 
-    update_drizzles(receiver.id, drizzles_count_replied)
-    update_drizzles(sender.id, drizzles_count_sender)
+    update_drizzles(receiver_username, drizzles_count_receiver)
+    update_drizzles(sender_username, drizzles_count_sender)
 
-    # Update user info
-    update_user_info(sender.id, sender.username, get_drizzles(sender.id))
-    update_user_info(receiver.id, receiver.username, get_drizzles(receiver.id))
+    # Update the last sticker transaction time
+    update_last_sticker_transaction(sender_username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-# # Handler for unknown commands
-# def unknown(update, context):
-#     update.message.reply_text("Sorry, I didn't understand that command.")
-
+# Main function to set up the bot
 def main():
-    # Create the users table if it doesn't exist
     create_users_table()
 
-    # Set up the bot
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
-    # Add handlers
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("drizzles", drizzles))
-    dp.add_handler(CommandHandler("drizzleboard", drizzyboard))
+    dp.add_handler(CommandHandler("drizzleboard", drizzleboard))
     dp.add_handler(MessageHandler(Filters.sticker, handle_stickers))
-    # dp.add_handler(MessageHandler(Filters.command, unknown))
 
-    # Start the Bot
     updater.start_polling()
     updater.idle()
 
