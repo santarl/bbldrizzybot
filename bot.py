@@ -4,6 +4,13 @@ from telegram.ext import Filters, Updater, CommandHandler, MessageHandler, Callb
 from config import TOKEN
 from datetime import datetime, timedelta
 
+def stop(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    if chat_id = ADMIN_GROUP:
+        update.message.reply_text("Bot is shutting down...")
+        context.bot_data['updater'].stop()
+        return
+
 # Function to handle /bbldrizzybackup command
 def bbldrizzybackup(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -168,40 +175,53 @@ def sanitize_username(username):
 
 # Handler for stickers
 def handle_stickers(update, context):
-    sticker = update.message.sticker
-    
-    if sticker.set_name != "bbldrizzybot":
-        return
+    message = update.message
+    sticker = message.sticker
 
-    if sticker.emoji == "🎒":
+    # Determine the command based on the sticker or text message
+    if sticker:
+        # Check if the sticker pack name is "bbldrizzybot"
+        if sticker.set_name != "bbldrizzybot":
+            message.reply_text("`This sticker is not part of the bbldrizzybot sticker pack.`", parse_mode='MarkdownV2')
+            return
+        command = sticker.emoji
+    else:
+        text = message.text.strip().lower()
+        if text == "/drake":
+            command = "🚸"
+        elif text == "/kendrick":
+            command = "🎤"
+        else:
+            return  # Ignore other text messages
+
+    if command == "🎒":
         drizzles(update, context)
         return
 
-    if sticker.emoji == "🥇":
+    if command == "🥇":
         drizzleboard(update, context)
         return
 
-    if not update.message.reply_to_message:
-        update.message.reply_text("`Please reply to a message to share Drizzles.`", parse_mode='MarkdownV2')
+    if not message.reply_to_message:
+        message.reply_text("`Please reply to a message to share Drizzles.`", parse_mode='MarkdownV2')
         return
 
-    sender = update.message.from_user
-    receiver = update.message.reply_to_message.from_user
+    sender = message.from_user
+    receiver = message.reply_to_message.from_user
 
     if not sender.username or not receiver.username:
-        update.message.reply_text("`Both users need to set a username in their Telegram settings to use this bot.`", parse_mode='MarkdownV2')
+        message.reply_text("`Both users need to set a username in their Telegram settings to use this bot.`", parse_mode='MarkdownV2')
         return
 
     get_drizzles(sender.username)
     get_drizzles(receiver.username)
 
-    
     if sender.id == receiver.id:
-        update.message.reply_text("`You don't need me for this, just pretend you're transferring Drizzles to yourself 🤓`", parse_mode='MarkdownV2')
+        message.reply_text("`You don't need me for this, just pretend you're transferring Drizzles to yourself 🤓`", parse_mode='MarkdownV2')
         return
 
     if receiver.is_bot:
-        update.message.reply_text("`I can be your friend but you need to find a real person to play with 🥺`", parse_mode='MarkdownV2')
+        message.reply_text("`I can be your friend but you need to find a real person to play with 🥺`", parse_mode='MarkdownV2')
         return
 
     sender_username = sanitize_username(sender.username)
@@ -215,18 +235,18 @@ def handle_stickers(update, context):
     if last_transaction_time:
         time_since_last_transaction = datetime.now() - datetime.strptime(last_transaction_time, "%Y-%m-%d %H:%M:%S")
         if time_since_last_transaction < timedelta(seconds=30):
-            update.message.reply_text("`Easy Brother, one transaction 🎤🚸 every 30 seconds`", parse_mode='MarkdownV2')
+            message.reply_text("`Easy Brother, one transaction 🎤🚸 every 30 seconds`", parse_mode='MarkdownV2')
             return
 
     transaction_amount = random.randrange(1, 5)
-    if sticker.emoji == "🚸":
+    if command == "🚸":
         drizzles_count_receiver += transaction_amount
         drizzles_count_sender -= transaction_amount
-        update.message.reply_text(f"`{sender_username} has gifted {transaction_amount} Drizzles to {receiver_username} from their account!`", parse_mode='MarkdownV2')
-    elif sticker.emoji == "🎤":
+        message.reply_text(f"`{sender_username} has gifted {transaction_amount} Drizzles to {receiver_username} from their account!`", parse_mode='MarkdownV2')
+    elif command == "🎤":
         drizzles_count_receiver -= transaction_amount
         drizzles_count_sender += transaction_amount
-        update.message.reply_text(f"`{sender_username} has borrowed {transaction_amount} Drizzles from {receiver_username}'s account!`", parse_mode='MarkdownV2')
+        message.reply_text(f"`{sender_username} has borrowed {transaction_amount} Drizzles from {receiver_username}'s account!`", parse_mode='MarkdownV2')
 
     update_drizzles(receiver_username, drizzles_count_receiver)
     update_drizzles(sender_username, drizzles_count_sender)
@@ -245,6 +265,8 @@ def main():
     dp.add_handler(CommandHandler("drizzles", drizzles))
     dp.add_handler(CommandHandler("drizzleboard", drizzleboard))
     dp.add_handler(MessageHandler(Filters.sticker, handle_stickers))
+    dp.add_handler(CommandHandler("drake", handle_stickers))
+    dp.add_handler(CommandHandler("kendrick", handle_stickers))
     dp.add_handler(CommandHandler("bbldrizzybackup", bbldrizzybackup))
     dp.add_handler(CommandHandler("bbldrizzyrestore", bbldrizzyrestore))
 
