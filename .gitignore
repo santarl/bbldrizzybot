@@ -1,3 +1,4 @@
 config.py
 __pycache__/config.cpython-310.pyc
 __pycache__/queries.cpython-310.pyc
+database.db
