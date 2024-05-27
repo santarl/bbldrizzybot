@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 def stop(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
-    if chat_id = ADMIN_GROUP:
+    if chat_id == ADMIN_GROUP:
         update.message.reply_text("Bot is shutting down...")
         context.bot_data['updater'].stop()
         return
@@ -17,9 +17,10 @@ def bbldrizzybackup(update: Update, context: CallbackContext):
     if chat_id != ADMIN_GROUP:
         update.message.reply_text("This command is only available in the specified chat.")
         return
-    
+
     backup_filename = f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-    context.bot.send_document(chat_id, document=open('database.db', 'rb'), filename=backup_filename)
+    with open('database.db', 'rb') as file:
+        context.bot.send_document(chat_id, document=file, filename=backup_filename)
 
 # Function to handle /bbldrizzyrestore command
 def bbldrizzyrestore(update: Update, context: CallbackContext):
